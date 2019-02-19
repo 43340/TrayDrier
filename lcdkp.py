@@ -2,6 +2,8 @@ import lcddriver
 from time import *
 import RPi.GPIO as GPIO
 import time
+import requests
+import json
 
 GPIO.setmode(GPIO.BCM)
 
@@ -50,6 +52,10 @@ def getKey():
                         elif (key=="*"):
                             finput = ""
                             lcd.lcd_clear()
+                        elif (key=="A"):
+                            ctemp, chum = getTempAndHum()
+                            lcd.lcd_display_string("Temp: " + str(ctemp), 2)
+                            lcd.lcd_display_string("Hum: " + str(chum), 3)
                         else:
                             finput = finput + key
                             lcd.lcd_display_string(finput, 1)
@@ -61,6 +67,17 @@ def getKey():
             #time.sleep(0.2)
     except KeyboardInterrupt:
         GPIO.cleanup()
+
+
+def getTempAndHum():
+    r = requests.get('http://192.168.254.103:8023/data')
+    data = r.json()
+    ctemp = data['temperature']
+    chum = data['humidity']
+
+    return ctemp, chum
+
+
 
 lcd = lcddriver.lcd()
 lcd.lcd_clear()
