@@ -24,44 +24,46 @@ def getDHTData(pid):
     DHT22Sensor = Adafruit_DHT.DHT22
     DHTPin = 4
     hum, temp = Adafruit_DHT.read_retry(DHT22Sensor, DHTPin)
-    adjustHeaterPower(hum, temp)
+    # adjustHeaterPower(hum, temp)
 
     if hum is not None and temp is not None:
+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         hum = round(hum)
         temp = round(temp)
-    return temp, hum
+    return temp, hum, ts
 
 
-def logData(pid, temp, hum):
+def logData(pid, temp, hum, ts):
     conn = sqlite3.connect(dbname)
     curs = conn.cursor()
-    curs.execute("INSERT INTO dht_data VALUES((?), (?), (?), datetime('now'))", (pid, temp, hum))
+    curs.execute("INSERT INTO dht_data VALUES((?), (?), (?), (?))", (pid, temp, hum, ts))
     conn.commit()
     conn.close()
 
 
 def logProcessData(pid, name, set_temp, cook_time, read_interval):
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     conn = sqlite3.connect(dbname)
     curs = conn.cursor()
-    curs.execute("INSERT INTO process_data VALUES((?), (?), (?), (?), (?), datetime('now'))", (pid, name, set_temp, cook_time, read_interval))
+    curs.execute("INSERT INTO process_data VALUES((?), (?), (?), (?), (?), (?))", (pid, name, set_temp, cook_time, read_interval, ts))
     conn.commit()
     conn.close()
 
 
 def adjustHeaterPower(set_temp, current_temp):
-    if current_temp < set_temp:
-        pi.write(pin, 1)
-    else:
+    if set_temp <= current_temp:
         pi.write(pin, 0)
+    else:
+        pi.write(pin, 1)
 
 
 def startProcess(pid, set_temp, cook_time, read_interval):
     processing = True
-    current_temp, current_hum = getDHTData(pid)
 
     while processing:
-        adjustHeaterPower(set_temp, current_temp)
-        logData(pid, current_temp, current_hum)
+        current_temp, current_hum, cts = getDHTData(pid)
+        adjustHeaterPower(set_temp, current_hum) # changed current_temp to current_hum for testing purposes
+        logData(pid, current_temp, current_hum, cts)
 
         time.sleep(read_interval)
         cook_time = cook_time - read_interval
@@ -69,6 +71,8 @@ def startProcess(pid, set_temp, cook_time, read_interval):
         if cook_time <= 0:
             pi.write(pin, 0)
             processing = False
+            
+            return processing
 
 
 # This function will hold some parameter one day
@@ -86,13 +90,23 @@ def getData(pid=""):
     return [dict(ix) for ix in rows]
 
 
+def deleteData(pid="", db_table=""):
+    conn = sqlite3.connect(dbname)
+    conn.row_factory = sqlite3.Row
+    curs = conn.cursor()
+
+    curs.execute("DELETE FROM " + db_table)
+    conn.commit()
+    conn.close()
+
+
 class Data(Resource):
     def get(self):
 
-        temp, hum = getDHTData(pid="")
+        temp, hum, ts = getDHTData(pid="")
 
         return {
-            'time': str(dt.datetime.now()),
+            'time': ts,
             'temperature': temp,
             'humidity': hum
         }
@@ -107,6 +121,10 @@ class History(Resource):
         return {
             'history': history
         }
+    
+
+    def delete(self):
+        deleteData("", "dht_data")
 
 
 class History_By_Id(Resource):
@@ -129,7 +147,11 @@ class Start_Process(Resource):
         read_interval = content['rinte']
 
         logProcessData(pid, name, set_temp, cook_time, read_interval)
-        startProcess(pid, set_temp, cook_time, read_interval)
+        isProcessing = startProcess(pid, set_temp, cook_time, read_interval)
+
+        return {
+                'processing': isProcessing
+                }
 
 
 api.add_resource(Data, '/data')
