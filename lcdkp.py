@@ -48,6 +48,7 @@ def getKey():
                             print(finput)
                             lcd.lcd_clear()
                             lcd.lcd_display_string("Success", 1)
+                            GPIO.cleanup() # Remove this during production/cleanup
                             return finput
                         elif (key=="*"):
                             finput = ""
