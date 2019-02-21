@@ -133,6 +133,7 @@ def checkProcess():
 
 
 def sequence():
+    lcd.lcd_clear()
     lcd.lcd_display_string("Tray Dryer", 1)
     lcd.lcd_display_string("Control System", 2)
     time.sleep(5)
