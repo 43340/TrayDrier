@@ -77,10 +77,11 @@ def startProcess(pid, set_temp, cook_time, read_interval):
         cook_time = cook_time - read_interval
 
         if cook_time <= 0:
-            pi.write(pin, 0)
-            return stop_run
+            set_stop_run()
+            break
     
     pi.write(pin, 0)
+    print("yay")
     return stop_run
 
 
@@ -188,10 +189,15 @@ class Start_Process(Resource):
     def post(self):
         content = request.get_json()
         pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        # print(content)
         name = content['name']
         set_temp = content['stemp']
         cook_time = content['ctime']
         read_interval = content['rinte']
+        print(name)
+        print(set_temp)
+        print(cook_time)
+        print(read_interval)
 
         logProcessData(pid, name, set_temp, cook_time, read_interval)
 
@@ -208,11 +214,18 @@ class Stop_Process(Resource):
         set_stop_run()
 
 
+class Check_Process(Resource):
+    def get(self):
+        global stop_run
+
+        return { 'status': stop_run }
+
 api.add_resource(Data, '/data')
 api.add_resource(History, '/history')
 api.add_resource(History_By_Id, '/history/<id>')
 api.add_resource(Start_Process, '/start')
 api.add_resource(Stop_Process, '/stop')
+api.add_resource(Check_Process, '/check')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8023, debug="True")

@@ -120,6 +120,18 @@ def getTempAndHum():
     lcd.lcd_display_string("Hum: " + str(chum), 4)
 
 
+def checkProcess():
+    r = requests.get('http://192.168.254.103:8023/check')
+    data = r.json()
+
+    status = data['status']
+
+    if not status:
+        return False
+    else:
+        return True
+
+
 def sequence():
     lcd.lcd_display_string("Tray Dryer", 1)
     lcd.lcd_display_string("Control System", 2)
@@ -128,7 +140,6 @@ def sequence():
 
     name = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     set_temp = get_set_temp()
-    print(set_temp)
     cook_time = get_cook_time()
     read_interval = get_read_interval()
 
@@ -152,17 +163,36 @@ def sequence():
     time.sleep(1)
 
     lcd.lcd_clear()
-    getTempAndHum()
 
-    return {
-        "name": name,
-        "stemp": set_temp,
-        "ctime": cook_time,
-        "rinte": read_interval
+    return name, set_temp, cook_time, read_interval
+
+
+def set_variables():
+    name, stemp, ctime, rinte = sequence()
+    url = 'http://192.168.254.103:8023/start'
+    datas = {
+        "name": str(name),
+        "stemp": int(stemp),
+        "ctime": float(ctime),
+        "rinte": float(rinte)
     }
 
+    r = requests.post(url, json=datas)
 
-sequence()
+    print(r.status_code)
+
+
+def main():
+    while True:
+        if checkProcess():
+            set_variables()
+        else:
+            getTempAndHum()
+    
+main()
+
+
+
 """
 class KeyStore:
     def __init__(self):
