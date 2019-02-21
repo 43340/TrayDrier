@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_restful import Resource, Api
+from threading import Thread
 import time
 import Adafruit_DHT
 import sqlite3
@@ -13,8 +14,9 @@ dbname = 'sensorData.db'
 pi = pigpio.pi()
 pin = 19
 pi.set_mode(pin, pigpio.OUTPUT)
-global processing
-processing = False
+global stop_run
+stop_run = False
+pi.write(pin, 0)
 
 
 app = Flask("__name__")
@@ -62,28 +64,46 @@ def adjustHeaterPower(set_temp, current_temp):
         pi.write(pin, 1)
 
 
-def startProcess(pid, set_temp, cook_time, read_interval, param):
-    start = param
+def startProcess(pid, set_temp, cook_time, read_interval):
+    global stop_run
+    print (stop_run)
 
-    while start:
-        start = processing
+    while not stop_run:
         current_temp, current_hum, cts = getDHTData(pid)
         adjustHeaterPower(set_temp, current_hum) # changed current_temp to current_hum for testing purposes
         logData(pid, current_temp, current_hum, cts)
 
         time.sleep(read_interval)
         cook_time = cook_time - read_interval
-        print(start)
 
         if cook_time <= 0:
             pi.write(pin, 0)
-            start = False
-            
-            return start
+            return stop_run
     
     pi.write(pin, 0)
-    start = False
-    return start
+    return stop_run
+
+
+### Threads ###
+
+
+def manual_run(pid, set_temp, cook_time, read_interval):
+    t = Thread(target=startProcess, args=(pid, set_temp, cook_time, read_interval))
+    t.start()
+
+
+def run_process(pid, set_temp, cook_time, read_interval):
+    global stop_run
+    stop_run = False
+    manual_run(pid, set_temp, cook_time, read_interval)
+
+
+def set_stop_run():
+    global stop_run
+    stop_run = True
+
+
+### /Threads ###
 
 
 # This function will hold some parameter one day. Now it does
@@ -165,28 +185,34 @@ class History_By_Id(Resource):
 
 
 class Start_Process(Resource):
-    def post(self, param):
-        pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    def post(self):
         content = request.get_json()
+        pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         name = content['name']
         set_temp = content['stemp']
         cook_time = content['ctime']
         read_interval = content['rinte']
 
-        if(param==1):
-            logProcessData(pid, name, set_temp, cook_time, read_interval)
-        
-        isProcessing = startProcess(pid, set_temp, cook_time, read_interval, param)
+        logProcessData(pid, name, set_temp, cook_time, read_interval)
 
-        return {
-                'processing': isProcessing
-                }
+        global stop_run
+
+        run_process(pid, set_temp, cook_time, read_interval)
+
+
+class Stop_Process(Resource):
+    def post(self):
+
+        global stop_run
+
+        set_stop_run()
 
 
 api.add_resource(Data, '/data')
 api.add_resource(History, '/history')
 api.add_resource(History_By_Id, '/history/<id>')
-api.add_resource(Start_Process, '/start/<param>')
+api.add_resource(Start_Process, '/start')
+api.add_resource(Stop_Process, '/stop')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8023, debug="True")
