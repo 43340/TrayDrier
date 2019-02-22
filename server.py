@@ -15,7 +15,7 @@ pi = pigpio.pi()
 pin = 19
 pi.set_mode(pin, pigpio.OUTPUT)
 global stop_run
-stop_run = False
+stop_run = True
 pi.write(pin, 0)
 
 
@@ -122,6 +122,19 @@ def getData(pid=""):
     return [dict(ix) for ix in rows]
 
 
+def getDataByProcess(pid=""):
+    conn = sqlite3.connect(dbname)
+    conn.row_factory = sqlite3.Row
+    curs = conn.cursor()
+
+    if pid == "":
+        rows = curs.execute("SELECT * FROM process_data").fetchall()
+    else:
+        rows = curs.execute("SELECT * FROM process_data WHERE process_id=" + pid)
+
+    return [dict(ix) for ix in rows]
+
+
 def deleteData(pid="", db_table=""):
     conn = sqlite3.connect(dbname)
     conn.row_factory = sqlite3.Row
@@ -185,6 +198,16 @@ class History_By_Id(Resource):
         }
 
 
+class History_By_Process(Resource):
+    def get(self):
+        history = getDataByProcess()
+        jsonify(history)
+
+        return {
+            'history': history
+        }
+
+
 class Start_Process(Resource):
     def post(self):
         content = request.get_json()
@@ -220,12 +243,14 @@ class Check_Process(Resource):
 
         return { 'status': stop_run }
 
+
 api.add_resource(Data, '/data')
 api.add_resource(History, '/history')
 api.add_resource(History_By_Id, '/history/<id>')
 api.add_resource(Start_Process, '/start')
 api.add_resource(Stop_Process, '/stop')
 api.add_resource(Check_Process, '/check')
+api.add_resource(History_By_Process, '/process/')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8023, debug="True")

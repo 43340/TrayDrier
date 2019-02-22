@@ -71,7 +71,7 @@ def getKey(prompt="", prompt2=""):
                         elif (key=="D"):
                             getTempAndHum()
                         elif (key=="#"):
-                            return "#"
+                            return key
                         else:
                             finput = finput + key
                             lcd.lcd_display_string(finput, 3)
@@ -146,9 +146,9 @@ def sequence():
 
     lcd.lcd_clear()
     lcd.lcd_display_string("Confirm", 1)
-    lcd.lcd_display_string(set_temp + "C", 2)
-    lcd.lcd_display_string(cook_time + "mins", 3)
-    lcd.lcd_display_string(read_interval + "sec", 4)
+    lcd.lcd_display_string(set_temp + " C", 2)
+    lcd.lcd_display_string(cook_time + " mins", 3)
+    lcd.lcd_display_string(read_interval + " sec", 4)
 
     key = getKey()
 
