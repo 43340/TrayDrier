@@ -241,7 +241,7 @@ class Check_Process(Resource):
     def get(self):
         global stop_run
 
-        return { 'status': stop_run }
+        return { 'stopped': stop_run }
 
 
 api.add_resource(Data, '/data')

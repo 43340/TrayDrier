@@ -39,6 +39,7 @@ def getKey(prompt="", prompt2=""):
         lcd.lcd_clear()
         lcd.lcd_display_string(prompt, 1)
         lcd.lcd_display_string(prompt2, 2)
+        lcd.lcd_display_string("(A)OK (B)BSp (C)Cncl", 4)
 
     try:
         GPIO.output(12, 1)
@@ -64,6 +65,7 @@ def getKey(prompt="", prompt2=""):
                             lcd.lcd_display_string(prompt, 1)
                             lcd.lcd_display_string(prompt2, 2)
                             lcd.lcd_display_string(finput, 3)
+                            lcd.lcd_display_string("(A)OK (B)BSp (C)Cncl", 4)
                             time.sleep(0.3)
                         elif (key=="C"):
                             finput = ""
@@ -124,7 +126,7 @@ def checkProcess():
     r = requests.get('http://192.168.254.103:8023/check')
     data = r.json()
 
-    status = data['status']
+    status = data['stopped']
 
     if not status:
         return False
