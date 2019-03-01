@@ -2,17 +2,19 @@ from flask import Flask, request, jsonify, Response
 from flask_restful import Resource, Api
 from threading import Thread
 import time
-import Adafruit_DHT
 import sqlite3
 import json
 import datetime as dt
 import RPi.GPIO as GPIO
 import pigpio
 import datetime
+import si7021
 
 dbname = 'sensorData.db'
 pi = pigpio.pi()
-pin = 19
+sensor1 = si7021.si7021(1)
+sensor2 = si7021.si7021(3)
+pin = 26
 pi.set_mode(pin, pigpio.OUTPUT)
 global stop_run
 stop_run = True
@@ -23,16 +25,14 @@ app = Flask("__name__")
 api = Api(app)
 
 
-def getDHTData(pid):
-    DHT22Sensor = Adafruit_DHT.DHT22
-    DHTPin = 4
-    hum, temp = Adafruit_DHT.read_retry(DHT22Sensor, DHTPin)
-    # adjustHeaterPower(hum, temp)
+def getTempHumiData(pid):
+    temp = (sensor1.Temperature() + sensor2.Temperature()) / 2
+    hum = (sensor1.Humidity() + sensor2.Humidity()) / 2
 
     if hum is not None and temp is not None:
         ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        hum = round(hum)
-        temp = round(temp)
+        # hum = round(hum)
+        # temp = round(temp)
     return temp, hum, ts
 
 
@@ -69,16 +69,16 @@ def startProcess(pid, set_temp, cook_time, read_interval):
     print (stop_run)
 
     while not stop_run:
-        current_temp, current_hum, cts = getDHTData(pid)
-        adjustHeaterPower(set_temp, current_hum) # changed current_temp to current_hum for testing purposes
+        if cook_time <= 0:
+            set_stop_run()
+            break
+
+        current_temp, current_hum, cts = getTempHumiData(pid)
+        adjustHeaterPower(set_temp, current_temp) # changed current_temp to current_hum for testing purposes
         logData(pid, current_temp, current_hum, cts)
 
         time.sleep(read_interval)
         cook_time = cook_time - read_interval
-
-        if cook_time <= 0:
-            set_stop_run()
-            break
     
     pi.write(pin, 0)
     print("yay")
@@ -102,6 +102,11 @@ def run_process(pid, set_temp, cook_time, read_interval):
 def set_stop_run():
     global stop_run
     stop_run = True
+
+
+def get_dht_data(pid):
+    t = Thread(target=getTempHumiData, args=(pid))
+    t.start()
 
 
 ### /Threads ###
@@ -164,7 +169,7 @@ def countDownTimer(cook_time):
 class Data(Resource):
     def get(self):
 
-        temp, hum, ts = getDHTData(pid="")
+        temp, hum, ts = getTempHumiData(pid="")
 
         return {
             'time': ts,

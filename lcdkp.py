@@ -71,7 +71,7 @@ def getKey(prompt="", prompt2=""):
                             finput = ""
                             lcd.lcd_clear()
                         elif (key=="D"):
-                            getTempAndHum()
+                            main()
                         elif (key=="#"):
                             return key
                         else:
@@ -112,7 +112,7 @@ def get_read_interval():
 
 
 def getTempAndHum():
-    r = requests.get('http://192.168.254.103:8023/data')
+    r = requests.get('http://192.168.43.50:8023/data')
     data = r.json()
     ctemp = data['temperature']
     chum = data['humidity']
@@ -123,7 +123,7 @@ def getTempAndHum():
 
 
 def checkProcess():
-    r = requests.get('http://192.168.254.103:8023/check')
+    r = requests.get('http://192.168.43.50:8023/check')
     data = r.json()
 
     status = data['stopped']
@@ -172,7 +172,7 @@ def sequence():
 
 def set_variables():
     name, stemp, ctime, rinte = sequence()
-    url = 'http://192.168.254.103:8023/start'
+    url = 'http://192.168.43.50:8023/start'
     datas = {
         "name": str(name),
         "stemp": int(stemp),
@@ -191,6 +191,8 @@ def main():
             set_variables()
         else:
             getTempAndHum()
+    lcd.lcd_display_string("Done", 1)
+    time.sleep(5)
     
 main()
 
