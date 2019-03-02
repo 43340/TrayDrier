@@ -217,7 +217,7 @@ class Start_Process(Resource):
     def post(self):
         content = request.get_json()
         pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        # print(content)
+
         name = content['name']
         set_temp = content['stemp']
         cook_time = content['ctime']
