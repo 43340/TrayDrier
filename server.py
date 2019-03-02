@@ -1,261 +1,187 @@
-from flask import Flask, request, jsonify, Response
-from flask_restful import Resource, Api
-from threading import Thread
-import time
-import sqlite3
-import json
-import datetime as dt
-import RPi.GPIO as GPIO
-import pigpio
+from flask import Flask, request, jsonify, make_response
+from flask_sqlalchemy import SQLAlchemy
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
+import uuid
+import jwt
 import datetime
-import si7021
+import os
 
-dbname = 'sensorData.db'
-pi = pigpio.pi()
-sensor1 = si7021.si7021(1)
-sensor2 = si7021.si7021(3)
-pin = 26
-pi.set_mode(pin, pigpio.OUTPUT)
-global stop_run
-stop_run = True
-pi.write(pin, 0)
+app = Flask(__name__)
 
+app.config['SECRET_KEY'] = 'thisissecret'
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'dryer.db')
 
-app = Flask("__name__")
-api = Api(app)
+db = SQLAlchemy(app)
 
 
-def getTempHumiData(pid):
-    temp = (sensor1.Temperature() + sensor2.Temperature()) / 2
-    hum = (sensor1.Humidity() + sensor2.Humidity()) / 2
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(50), unique=True)
+    name = db.Column(db.String(50))
+    password = db.Column(db.String(80))
+    admin = db.Column(db.Boolean)
 
-    if hum is not None and temp is not None:
-        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        # hum = round(hum)
-        # temp = round(temp)
-    return temp, hum, ts
 
+class ProcessData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    process_id = db.Column(db.String(50), unique=True)
+    name = db.Column(db.String(50))
+    set_temp = db.Column(db.Integer)
+    cook_time = db.Column(db.Integer)
+    read_int = db.Column(db.Integer)
+    time_stamp = db.Column(db.String(80))
+    user_id = db.Column(db.Integer)
 
-def logData(pid, temp, hum, ts):
-    conn = sqlite3.connect(dbname)
-    curs = conn.cursor()
-    curs.execute("INSERT INTO dht_data VALUES((?), (?), (?), (?))",
-                 (pid, temp, hum, ts))
-    conn.commit()
-    conn.close()
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
 
-def logProcessData(pid, name, set_temp, cook_time, read_interval):
-    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    conn = sqlite3.connect(dbname)
-    curs = conn.cursor()
-    curs.execute("INSERT INTO process_data VALUES((?), (?), (?), (?), (?), (?))",
-                 (pid, name, set_temp, cook_time, read_interval, ts))
-    conn.commit()
-    conn.close()
+        if 'x-access-token' in request.headers:
+            token = request.headers['x-access-token']
 
-    return ts
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
 
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'])
+            current_user = User.query.filter_by(public_id=data['public_id']).first()
+        except:
+            return jsonify({'message': 'Token is invalid!'}), 401
 
-def adjustHeaterPower(set_temp, current_temp):
-    if set_temp <= current_temp:
-        pi.write(pin, 0)
-    else:
-        pi.write(pin, 1)
+        return f(current_user, *args, **kwargs)
 
+    return decorated
 
-def startProcess(pid, set_temp, cook_time, read_interval):
-    global stop_run
-    print (stop_run)
 
-    while not stop_run:
-        if cook_time <= 0:
-            set_stop_run()
-            break
+class DHTData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    temp = db.Column(db.Integer)
+    hum = db.Column(db.Integer)
+    time_stamp = db.Column(db.String(80))
+    process_id = db.Column(db.String(50))
 
-        current_temp, current_hum, cts = getTempHumiData(pid)
-        adjustHeaterPower(set_temp, current_temp) # changed current_temp to current_hum for testing purposes
-        logData(pid, current_temp, current_hum, cts)
 
-        time.sleep(read_interval)
-        cook_time = cook_time - read_interval
-    
-    pi.write(pin, 0)
-    print("yay")
-    return stop_run
+@app.route('/user', methods=['GET'])
+@token_required
+def get_all_users(current_user):
 
+    if not current_user.admin:
+        return jsonify({'message': 'Cannot perforn that function'})
 
-### Threads ###
+    users = User.query.all()
 
+    output = []
 
-def manual_run(pid, set_temp, cook_time, read_interval):
-    t = Thread(target=startProcess, args=(pid, set_temp, cook_time, read_interval))
-    t.start()
+    for user in users:
+        user_data = {}
+        user_data['public_id'] = user.public_id
+        user_data['name'] = user.name
+        user_data['password'] = user.password
+        user_data['admin'] = user.admin
+        output.append(user_data)
 
+    return jsonify({'users': output})
 
-def run_process(pid, set_temp, cook_time, read_interval):
-    global stop_run
-    stop_run = False
-    manual_run(pid, set_temp, cook_time, read_interval)
 
+@app.route('/user/<public_id>', methods=['GET'])
+@token_required
+def get_one_user(current_user, public_id):
 
-def set_stop_run():
-    global stop_run
-    stop_run = True
+    if not current_user.admin:
+        return jsonify({'message': 'Cannot perforn that function'})
 
+    user = User.query.filter_by(public_id=public_id).first()
 
-def get_dht_data(pid):
-    t = Thread(target=getTempHumiData, args=(pid))
-    t.start()
+    if not user:
+        return jsonify({'message': 'No user found!'})
 
+    user_data = {}
+    user_data['public_id'] = user.public_id
+    user_data['name'] = user.name
+    user_data['password'] = user.password
+    user_data['admin'] = user.admin
 
-### /Threads ###
+    return jsonify({'user': user_data})
 
 
-# This function will hold some parameter one day. Now it does
-def getData(pid=""):
-    conn = sqlite3.connect(dbname)
-    conn.row_factory = sqlite3.Row
-    curs = conn.cursor()
+@app.route('/user', methods=['POST'])
+@token_required
+def create_user(current_user):
 
-    if pid == "":
-        rows = curs.execute("SELECT * FROM dht_data").fetchall()
-    else:
-        rows = curs.execute("SELECT * FROM dht_data WHERE process_id=" + pid)
+    if not current_user.admin:
+        return jsonify({'message': 'Cannot perforn that function'})
 
-    # print (json.dumps([dict(ix) for ix in rows]))
-    return [dict(ix) for ix in rows]
+    data = request.get_json()
 
+    hashed_password = generate_password_hash(data['password'], method='sha256')
 
-def getDataByProcess(pid=""):
-    conn = sqlite3.connect(dbname)
-    conn.row_factory = sqlite3.Row
-    curs = conn.cursor()
+    new_user = User(public_id=str(uuid.uuid4()), name=data['name'], password=hashed_password, admin=False)
+    db.session.add(new_user)
+    db.session.commit()
 
-    if pid == "":
-        rows = curs.execute("SELECT * FROM process_data").fetchall()
-    else:
-        rows = curs.execute("SELECT * FROM process_data WHERE process_id=" + pid)
+    return jsonify({'message': 'New user created'})
 
-    return [dict(ix) for ix in rows]
 
+@app.route('/user/<public_id>', methods=['PUT'])
+@token_required
+def promote_user(current_user, public_id):
 
-def deleteData(pid="", db_table=""):
-    conn = sqlite3.connect(dbname)
-    conn.row_factory = sqlite3.Row
-    curs = conn.cursor()
+    if not current_user.admin:
+        return jsonify({'message': 'Cannot perforn that function'})
 
-    curs.execute("DELETE FROM " + db_table)
-    conn.commit()
-    conn.close()
+    user = User.query.filter_by(public_id=public_id).first()
 
+    if not user:
+        return jsonify({'message': 'No user found!'})
 
-def countDownTimer(cook_time):
-    x=datetime.today()
-    y=x.replace(day=x.day+1, hour=0, minute=cook_time, second=0, microsecond=0)
-    delta_t=y-x
-    secs=delta_t.seconds+1
+    user.admin = True
+    db.session.commit()
 
-    second = (secs % 60)
-    minute = (secs / 60) % 60
-    hour = (secs / 3600)
-    print ("Seconds: %s " % (second))
-    print ("Minute: %s " % (minute))
-    print ("Hour: %s" % (hour))
+    return jsonify({'message': 'The user has been promoted!'})
 
-    print ("Time is %s:%s:%s" % (hour, minute, second))
 
+@app.route('/user/<public_id>', methods=['DELETE'])
+@token_required
+def delete_user(current_user, public_id):
 
-class Data(Resource):
-    def get(self):
+    if not current_user.admin:
+        return jsonify({'message': 'Cannot perforn that function'})
 
-        temp, hum, ts = getTempHumiData(pid="")
+    user = User.query.filter_by(public_id=public_id).first()
 
-        return {
-            'time': ts,
-            'temperature': temp,
-            'humidity': hum
-        }
+    if not user:
+        return jsonify({'message': 'No user found!'})
 
+    db.session.delete(user)
+    db.session.commit()
 
-class History(Resource):
-    def get(self):
+    return jsonify({'message': 'The user has been deleted!'})
 
-        history = getData()
-        jsonify(history)
 
-        return {
-            'history': history
-        }
-    
+@app.route('/login')
+def login():
 
-    def delete(self):
-        deleteData("", "dht_data")
+    auth = request.authorization
 
+    if not auth or not auth.username or not auth.password:
+        return make_response('Could not verify', 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
 
-class History_By_Id(Resource):
-    def get(self, id):
-        history = getData(id)
-        jsonify(history)
+    user = User.query.filter_by(name=auth.username).first()
 
-        return {
-            'history': history
-        }
+    if not user:
+        return make_response('Could not verify', 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
 
+    if check_password_hash(user.password, auth.password):
+        token = jwt.encode({'public_id': user.public_id, 'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)}, app.config['SECRET_KEY'])
 
-class History_By_Process(Resource):
-    def get(self):
-        history = getDataByProcess()
-        jsonify(history)
+        return jsonify({'token': token.decode('UTF-8')})
 
-        return {
-            'history': history
-        }
+    return make_response('Could not verify', 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
 
-
-class Start_Process(Resource):
-    def post(self):
-        content = request.get_json()
-        pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-
-        name = content['name']
-        set_temp = content['stemp']
-        cook_time = content['ctime']
-        read_interval = content['rinte']
-        print(name)
-        print(set_temp)
-        print(cook_time)
-        print(read_interval)
-
-        logProcessData(pid, name, set_temp, cook_time, read_interval)
-
-        global stop_run
-
-        run_process(pid, set_temp, cook_time, read_interval)
-
-
-class Stop_Process(Resource):
-    def post(self):
-
-        global stop_run
-
-        set_stop_run()
-
-
-class Check_Process(Resource):
-    def get(self):
-        global stop_run
-
-        return { 'stopped': stop_run }
-
-
-api.add_resource(Data, '/data')
-api.add_resource(History, '/history')
-api.add_resource(History_By_Id, '/history/<id>')
-api.add_resource(Start_Process, '/start')
-api.add_resource(Stop_Process, '/stop')
-api.add_resource(Check_Process, '/check')
-api.add_resource(History_By_Process, '/process/')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8023, debug="True")
