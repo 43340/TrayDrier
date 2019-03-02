@@ -69,16 +69,16 @@ def startProcess(pid, set_temp, cook_time, read_interval):
     print (stop_run)
 
     while not stop_run:
-        if cook_time <= 0:
-            set_stop_run()
-            break
-
         current_temp, current_hum, cts = getTempHumiData(pid)
         adjustHeaterPower(set_temp, current_temp) # changed current_temp to current_hum for testing purposes
         logData(pid, current_temp, current_hum, cts)
 
         time.sleep(read_interval)
         cook_time = cook_time - read_interval
+
+        if cook_time <= 0:
+            set_stop_run()
+            break
     
     pi.write(pin, 0)
     print("yay")
