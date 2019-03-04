@@ -111,4 +111,4 @@ class si7021:
     def GetTempHumi(self):
         temp = self.Temperature()
         humi = self.Humidity()
-        return temp,
+        return temp, humi
